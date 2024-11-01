@@ -6,8 +6,7 @@ import File from "./schema/file.js";
 import uid2 from "uid2";
 import bcrypt from "bcrypt";
 import multer from "multer";
-import { GridFsStorage } from "multer-gridfs-storage";
-import crypto from "crypto";
+import cors from "cors";
 
 dotenv.config();
 
@@ -22,10 +21,11 @@ mongoose
 
 const app = express();
 app.use(express.json());
-
+app.use(cors());
 const port = process.env.PORT || 3000;
-
 app.listen(port, () => console.log(`Server running on port ${port}`));
+
+
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
@@ -62,16 +62,13 @@ app.post("/login", (req, res) => {
         const user = req.body.user;
         const password = req.body.password;
         const token = req.body.token;
-
         if (!user || !password || !token) {
             throw new Error("Missing or empty fields");
         }
-
         User.findOne({ email: user }).then((data) => {
             if (!data || !bcrypt.compareSync(req.body.password, data.password)) {
                 throw new Error("Failed login");
             }
-
             res.json({ token: data.token });
         });
     } catch (e) {
@@ -95,11 +92,12 @@ app.post("/upload", upload.single("file"), async (req, res) => {
         const newFile = new File({
             filename: req.file.originalname,
             size: req.file.size,
-            userId: user._id, // Assurez-vous que cela correspond à l'ID de l'utilisateur
+            data: req.file.buffer,
+            userId: user._id,
+            tokenShare: uid2(32),
+            expiresAt: new Date(Date.now() + 10800000),
         });
-
-        await newFile.save(); // Enregistrez le fichier dans la base de données
-
+        await newFile.save();
         res.json({ message: "File uploaded successfully", file: newFile });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -111,7 +109,6 @@ app.get("/files", async (req, res) => {
     try {
         const userToken = req.header("Authorization").replace("Bearer ", "");
         const user = await User.findOne({ token: userToken });
-
         if (!user) return res.status(403).json({ error: "Unauthorized" });
         const files = await File.find({ userId: user._id });
         res.json(files);
@@ -125,12 +122,9 @@ app.get("/files/:fileId", async (req, res) => {
     try {
         const userToken = req.header("Authorization").replace("Bearer ", "");
         const user = await User.findOne({ token: userToken });
-
         if (!user) return res.status(403).json({ error: "Unauthorized" });
-
         const file = await File.findOne({ _id: req.params.fileId, userId: user._id });
         if (!file) return res.status(404).json({ error: "File not found" });
-
         res.json({ filename: file.filename, size: file.size, uploadDate: file.uploadDate, metadata: file.metadata });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -142,20 +136,29 @@ app.delete("/files/:fileId", async (req, res) => {
     try {
         const userToken = req.header("Authorization").replace("Bearer ", "");
         const user = await User.findOne({ token: userToken });
-
         if (!user) return res.status(403).json({ error: "Unauthorized" });
-
         const file = await File.findOne({ _id: req.params.fileId, userId: user._id });
         if (!file) return res.status(404).json({ error: "File not found" });
-
-        // Supprimer le fichier et mettre à jour la taille totale d'upload de l'utilisateur
         await File.deleteOne({ _id: req.params.fileId });
         user.totalUploadSize -= file.size;
         await user.save();
-
         res.json({ message: "File deleted successfully" });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
 
+app.get("/share/:token", async (req, res) => {
+    try {
+        const file = await File.findOne({ tokenShare: req.params.token });
+        if (!file) {
+            return res.status(404).json({ error: "File not found or link has expired" });
+        }
+        res.setHeader("Content-Disposition", `attachment; filename=${file.filename}`);
+        res.setHeader("Content-Length", file.size);
+        res.setHeader("Content-Type", "application/octet-stream");
+        res.send(file.data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
