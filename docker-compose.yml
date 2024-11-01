@@ -1,0 +1,32 @@
+services:
+  mongo:
+    image: mongo:latest
+    container_name: mongo
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+
+  server:
+    build:
+      context: ./server
+    container_name: server
+    environment:
+      MONGO_URI: mongodb://127.0.0.1:27017/file?authSource=admin
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongo
+
+  client:
+    build:
+      context: ./client
+    container_name: client
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+
+volumes:
+  mongo-data:

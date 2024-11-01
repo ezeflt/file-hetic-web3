@@ -12,7 +12,7 @@ dotenv.config();
 
 mongoose
     .connect(
-        `mongodb://127.0.0.1:27017/file`
+        process.env.MONGO_URI
     )
     .then(() => {
         console.log("connected success");
@@ -61,8 +61,7 @@ app.post("/login", (req, res) => {
     try {
         const user = req.body.user;
         const password = req.body.password;
-        const token = req.body.token;
-        if (!user || !password || !token) {
+        if (!user || !password) {
             throw new Error("Missing or empty fields");
         }
         User.findOne({ email: user }).then((data) => {
